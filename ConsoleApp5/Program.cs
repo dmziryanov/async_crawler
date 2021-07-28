@@ -13,10 +13,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using static System.Console;
+using Guid = System.Guid;
 
 namespace Challenges
 {
@@ -60,60 +62,79 @@ namespace Challenges
 
         public async Task<IDictionary<string, Page>> CrawlAsync(IEnumerable<string> urls, CancellationToken cancellationToken)
         {
-            Dictionary<string, Page> d = new Dictionary<string, Page>();
-            Boolean[] taskOpen = new Boolean[4000];
+            ConcurrentDictionary<string, Page> d = new ConcurrentDictionary<string, Page>();
+            Dictionary<string, Task> dt = new Dictionary<string, Task>();
+            var taskOpen = new  Dictionary<int, bool>();
             var keys = urls.ToHashSet();
             var keyList = urls.ToList();
             var firstPage = await Downloader(keyList[0], cancellationToken);
             var list = new List<Task>();
             var i = 0;
-            Queue<string> urlsQueue = new Queue<string>();
+            var j = 0;
+            Queue<string> urlsQueue = new Queue<string>(10000000);
             keyList.ForEach(x=>  urlsQueue.Enqueue(x));
             taskOpen[0] = true;
             Task res;
+            var flag = true;
+            Task<Page> page = null;
 
-            while (true)
+            while (d.Count <= 5000)
             {
                 if (urlsQueue.Count == 0)
                     continue;
-                    
-                    
-                    var url = urlsQueue.Dequeue();
-                    
 
-                    var page = Downloader(url, cancellationToken);
-
+                var url = urlsQueue.Dequeue();
                 if (url != null)
-                    {
-                        res = await Task.Factory.StartNew(async () =>
-                        {
-                            taskOpen[i] = true;
-                            var p = await page;
-                          
-                        
+                    page = Downloader(url, cancellationToken);
+                
+                res = await Task.Factory.StartNew(async () =>
+                {
 
-                            d.Add(url, p);
-                            foreach (var var in ReferenceExtractor(p).ToHashSet())
+                    if (url != null)
+                    {
+                        if (page != null)
+                        {
+                            var p = await page;
+
+                            if (!d.ContainsKey(url) && p != null)
+                                d.TryAdd(url, p);
+
+                            if (p != null && p.Content != null)
                             {
-                                if (!keys.Contains(var))
+                                foreach (var var in ReferenceExtractor(p).ToHashSet())
                                 {
-                                    urlsQueue.Enqueue(var);
-                                    keys.Add(var);
+                                    try
+                                    {
+                                        if (url != null)
+                                        {
+                                            urlsQueue.Enqueue(var);
+                                            i++;
+                                        }
+                                    }
+                                    catch (Exception e)
+                                    {
+                                        WriteLine(e);
+                                        throw;
+                                    }
+
                                 }
                             }
-
-                            taskOpen[i] = false;
-                        }, cancellationToken);
-
-                        i++;
-                        list.Add(res);
+                        }
                     }
+                    
+                }, cancellationToken);
+
+                       
+                       
+                        list.Add(res);
             }
 
-            await Task.WhenAll(list);
+            Task.WaitAll(list.ToArray());
             return d;
         }
     }
+
+
 
     public class CrawlerTester
     {
