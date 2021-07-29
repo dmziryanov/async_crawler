@@ -13,6 +13,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -61,27 +62,25 @@ namespace Challenges
         // No need to implement anything - use it as-is
         public Func<Page, IEnumerable<string>> ReferenceExtractor { get; set; }
 
-        public async Task<IDictionary<string, Page>> CrawlAsync(IEnumerable<string> urls,
-            CancellationToken cancellationToken)
+        [SuppressMessage("ReSharper.DPA", "DPA0002: Excessive memory allocations in SOH", MessageId = "type: System.String")]
+        public async Task<IDictionary<string, Page>> CrawlAsync(IEnumerable<string> urls, CancellationToken cancellationToken)
         {
             var list = new ConcurrentDictionary<string, Page>();
-            ConcurrentStack<string> urlsQueue = new ConcurrentStack<string>(urls.ToList());
+            ConcurrentQueue<string> urlsQueue = new ConcurrentQueue<string>(urls.ToList());
 
             while (list.Count <= CrawlerTester.TotalPageCount)
             {
+                if (urlsQueue.TryDequeue(out var url)) 
 
-                if (urlsQueue.Count == 0)
+                await Task.Factory.StartNew(async () =>
                 {
-                    continue;
-                }
-
-                urlsQueue.TryPop(out var url);
-                    Task.Factory.StartNew(async () =>
-                    {
+                    
                         list.TryAdd(url, await Downloader(url, cancellationToken));
-                        urlsQueue.PushRange(ReferenceExtractor(list[url]).ToArray());
-                    }, cancellationToken);
-                
+                        ReferenceExtractor(list[url]).ToList().ForEach(x => urlsQueue.Enqueue(x));
+
+                },  cancellationToken );
+
+
             }
 
             return list;
