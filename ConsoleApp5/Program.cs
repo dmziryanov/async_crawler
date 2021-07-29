@@ -23,7 +23,7 @@ using Guid = System.Guid;
 namespace Challenges
 {
 
-    
+
     public class Page
     {
         public string Url { get; }
@@ -57,80 +57,34 @@ namespace Challenges
     {
         // No need to implement anything - use it as-is
         public Func<string, CancellationToken, Task<Page>> Downloader { get; set; }
+
         // No need to implement anything - use it as-is
         public Func<Page, IEnumerable<string>> ReferenceExtractor { get; set; }
 
-        public async Task<IDictionary<string, Page>> CrawlAsync(IEnumerable<string> urls, CancellationToken cancellationToken)
+        public async Task<IDictionary<string, Page>> CrawlAsync(IEnumerable<string> urls,
+            CancellationToken cancellationToken)
         {
-            ConcurrentDictionary<string, Page> d = new ConcurrentDictionary<string, Page>();
-            Dictionary<string, Task> dt = new Dictionary<string, Task>();
-            var taskOpen = new  Dictionary<int, bool>();
-            var keys = urls.ToHashSet();
-            var keyList = urls.ToList();
-            var firstPage = await Downloader(keyList[0], cancellationToken);
-            var list = new List<Task>();
-            var i = 0;
-            var j = 0;
-            Queue<string> urlsQueue = new Queue<string>(10000000);
-            keyList.ForEach(x=>  urlsQueue.Enqueue(x));
-            taskOpen[0] = true;
-            Task res;
-            var flag = true;
-            Task<Page> page = null;
+            var list = new ConcurrentDictionary<string, Page>();
+            ConcurrentStack<string> urlsQueue = new ConcurrentStack<string>(urls.ToList());
 
-            while (d.Count <= 5000)
+            while (list.Count <= CrawlerTester.TotalPageCount)
             {
+
                 if (urlsQueue.Count == 0)
-                    continue;
-
-                var url = urlsQueue.Dequeue();
-                if (url != null)
-                    page = Downloader(url, cancellationToken);
-                
-                res = await Task.Factory.StartNew(async () =>
                 {
+                    continue;
+                }
 
-                    if (url != null)
+                urlsQueue.TryPop(out var url);
+                    Task.Factory.StartNew(async () =>
                     {
-                        if (page != null)
-                        {
-                            var p = await page;
-
-                            if (!d.ContainsKey(url) && p != null)
-                                d.TryAdd(url, p);
-
-                            if (p != null && p.Content != null)
-                            {
-                                foreach (var var in ReferenceExtractor(p).ToHashSet())
-                                {
-                                    try
-                                    {
-                                        if (url != null)
-                                        {
-                                            urlsQueue.Enqueue(var);
-                                            i++;
-                                        }
-                                    }
-                                    catch (Exception e)
-                                    {
-                                        WriteLine(e);
-                                        throw;
-                                    }
-
-                                }
-                            }
-                        }
-                    }
-                    
-                }, cancellationToken);
-
-                       
-                       
-                        list.Add(res);
+                        list.TryAdd(url, await Downloader(url, cancellationToken));
+                        urlsQueue.PushRange(ReferenceExtractor(list[url]).ToArray());
+                    }, cancellationToken);
+                
             }
 
-            Task.WaitAll(list.ToArray());
-            return d;
+            return list;
         }
     }
 
@@ -139,14 +93,14 @@ namespace Challenges
     public class CrawlerTester
     {
         public ICrawler Crawler { get; set; }
-        public int TotalPageCount { get; set; } = 5000;
+        public static int TotalPageCount { get; set; } = 5000;
         public TimeSpan MinPageDelayTime { get; set; } = TimeSpan.FromSeconds(0.1);
         public TimeSpan MaxPageDelayTime { get; set; } = TimeSpan.FromSeconds(1);
         public int MinPageReferenceCount { get; set; } = 0;
         public int MaxPageReferenceCount { get; set; } = 100;
         public Stopwatch Stopwatch { get; set; } = new Stopwatch();
 
-        private static int _pagesDownloaded;
+        public static int _pagesDownloaded;
         private static long _elapsedMilliseconds;
 
         private static void DisplayStatus(object state)
@@ -219,6 +173,7 @@ namespace Challenges
             };
             tester.Crawler = crawler;
             tester.Test("0");
+
         }
     }
 }
